@@ -1,0 +1,12 @@
+{
+  "name": "nova-ai-server",
+  "version": "1.0.0",
+  "description": "Nova AI Server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^5.1.0"
+  }
+}
