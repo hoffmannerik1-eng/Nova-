@@ -1,76 +1,80 @@
-import "dotenv/config";
-import express from "express";
-import OpenAI from "openai";
+const express = require("express");
 
 const app = express();
-const port = process.env.PORT || 3000;
-const model = process.env.OPENAI_MODEL || "gpt-5.6-luna";
+const PORT = process.env.PORT || 3000;
 
-if (!process.env.OPENAI_API_KEY) {
-  console.warn("OPENAI_API_KEY fehlt. Trage sie in .env ein.");
+// Dein API-Key wird NICHT aus dem Code gelesen,
+// sondern aus der Server-Umgebungsvariable.
+const API_KEY = process.env.GEMINI_API_KEY;
+
+if (!API_KEY) {
+    console.error("❌ GEMINI_API_KEY wurde nicht gefunden!");
+    console.error("Setze deinen API-Key als Umgebungsvariable.");
+    process.exit(1);
 }
 
-const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
-
-app.use(express.json({ limit: "4mb" }));
+app.use(express.json());
 app.use(express.static("public"));
 
 app.post("/api/chat", async (req, res) => {
-  try {
-    const messages = Array.isArray(req.body.messages) ? req.body.messages : [];
-    const webSearch = Boolean(req.body.webSearch);
+    try {
+        const message = req.body.message;
 
-    const response = await client.responses.create({
-      model,
-      instructions:
-        "Du bist Nova, ein moderner hilfreicher KI-Assistent. " +
-        "Antworte standardmäßig auf Deutsch, wenn der Nutzer Deutsch schreibt. " +
-        "Sei direkt, verständlich und hilfreich. " +
-        "Wenn Websuche aktiviert ist, nutze aktuelle Webinformationen. " +
-        "Wenn der Nutzer YouTube verlangt, gib am Ende eine kurze Zeile mit " +
-        "YOUTUBE_SEARCH: <Suchbegriff> aus.",
-      input: messages,
-      ...(webSearch ? { tools: [{ type: "web_search_preview" }] } : {})
-    });
+        if (!message || typeof message !== "string") {
+            return res.status(400).json({
+                error: "Keine Nachricht erhalten."
+            });
+        }
 
-    res.json({ text: response.output_text || "Keine Antwort erhalten." });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: err?.message || "Die Anfrage konnte nicht verarbeitet werden."
-    });
-  }
-});
+        const response = await fetch(
+            "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=" +
+            encodeURIComponent(API_KEY),
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                    contents: [
+                        {
+                            parts: [
+                                {
+                                    text: message
+                                }
+                            ]
+                        }
+                    ]
+                })
+            }
+        );
 
-app.post("/api/image", async (req, res) => {
-  try {
-    const prompt = String(req.body.prompt || "").trim();
-    if (!prompt) return res.status(400).json({ error: "Kein Prompt." });
+        const data = await response.json();
 
-    const result = await client.images.generate({
-      model: process.env.OPENAI_IMAGE_MODEL || "gpt-image-2",
-      prompt
-    });
+        if (!response.ok) {
+            console.error("Gemini API Fehler:", data);
 
-    const item = result.data?.[0];
-    if (item?.b64_json) {
-      return res.json({ image: `data:image/png;base64,${item.b64_json}` });
+            return res.status(response.status).json({
+                error: "Die KI konnte nicht antworten."
+            });
+        }
+
+        const answer =
+            data?.candidates?.[0]?.content?.parts?.[0]?.text ||
+            "Ich konnte leider keine Antwort erzeugen.";
+
+        res.json({
+            answer: answer
+        });
+
+    } catch (error) {
+        console.error("Serverfehler:", error);
+
+        res.status(500).json({
+            error: "Interner Serverfehler."
+        });
     }
-    if (item?.url) return res.json({ image: item.url });
-
-    res.status(500).json({ error: "Kein Bild zurückgegeben." });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({
-      error: err?.message || "Bild konnte nicht generiert werden."
-    });
-  }
 });
 
-app.get("*splat", (_req, res) => {
-  res.sendFile("index.html", { root: "public" });
-});
-
-app.listen(port, () => {
-  console.log(`Nova AI läuft auf http://localhost:${port}`);
+app.listen(PORT, () => {
+    console.log(`✅ Server läuft auf http://localhost:${PORT}`);
 });
